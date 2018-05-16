@@ -4,6 +4,8 @@
  */
 class Crawler
 {
+	private const GETTING_CONTENTS_RETRY_CNT = 5;
+
 	private $_baseUrl = '';
 	private $_baseScheme = '';
 	private $_baseDomain = '';
@@ -22,6 +24,9 @@ class Crawler
 			throw new Exception('[error] 起点URLが正しくありません。');
 		}
 		$header = @get_headers($baseUrl);
+		if (false === $header) {
+			throw new Exception('[error] URLのヘッダー情報を取得できませんでした。接続状態を確認してください。');
+		}
 		if (empty($header[0]) || !preg_match('/^HTTP\/.*\s+200\s/i', $header[0])) {
 			throw new Exception('[error] 起点URLが存在しません。');
 		}
@@ -65,11 +70,18 @@ class Crawler
 		}
 		
 		// ページ内リンクごとに同じ処理を実行
-		foreach ($xpath->query('//a[@href != "" and not(starts-with(@href, "#"))]') as $elm) {
-			$linkUrl = $xpath->evaluate('string(@href)', $elm);
+		foreach ($xpath->query('//a[normalize-space(@href) != "" and not(starts-with(normalize-space(@href), "#")) and not(starts-with(normalize-space(@href), "mailto:"))]') as $elm) {
+			$linkUrl = $xpath->evaluate('normalize-space(@href)', $elm);
 			$parseResult = parse_url($linkUrl);
 			if (!isset($parseResult['host'])) {
-				$linkUrl = $this->_baseScheme . '://' . $this->_baseDomain . $linkUrl;
+				if ('/' == $linkUrl[0]) {
+					$linkUrl = $this->_baseScheme . '://' . $this->_baseDomain . $linkUrl;
+				} else {
+					if ('/' != substr($url, -1)) {
+						$url .= '/';
+					}
+					$linkUrl = $url . $linkUrl;
+				}
 			}
 			$domain = $parseResult['host'] ?? $this->_baseDomain;
 			if ($this->_baseDomain != $domain || in_array($linkUrl, $this->_urlList, true)) {
@@ -89,13 +101,32 @@ class Crawler
 	 */
 	private function _generateXPath(string $url)
 	{
-		$html = @file_get_contents($url, false);
-		if (false === $html) {
-			return false;
-		}
+		$retryCnt = 0;
+		do {
+			$html = @file_get_contents($url);
+			if (false !== $html) {
+				break;
+			}
+
+			// ヘッダー情報からURLが存在していることを確認
+			$header = @get_headers($url);
+			if (false === $header) {
+				throw new Exception('[error] URLのヘッダー情報を取得できませんでした。接続状態を確認してください。');
+			}
+			if (empty($header[0]) || !preg_match('/^HTTP\/.*\s+200\s/i', $header[0])) {
+				// URLが存在しない場合
+				return false;
+			}
+			if (self::GETTING_CONTENTS_RETRY_CNT == $retryCnt) {
+				// URLは存在しているがリトライしても取得できない場合
+				return false;
+			}
+			++$retryCnt;
+		} while (true);
 
 		$dom = new DOMDocument();
 		if (false === @$dom->loadHTML(mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8'))) {
+			// HTMLではない場合
 			return false;
 		}
 

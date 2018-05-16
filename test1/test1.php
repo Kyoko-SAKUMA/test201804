@@ -56,6 +56,7 @@ try {
 		}
 
 		foreach ($tweetList as $tweetData) {
+			$maxId = $tweetData['id_str'];
 			if (empty($tweetData['entities']['media'])) {
 				echoLog('[error] 画像データが存在しません。ID: ' . $tweetData['id_str']);
 				continue;
@@ -63,18 +64,36 @@ try {
 			
 			// 1ツイート1画像のみ保存
 			foreach ($tweetData['entities']['media'] as $mediaData) {
-				$maxId = $tweetData['id_str'];
 				if ('photo' != $mediaData['type']) {
 					echoLog('[error] ファイル種別が正しくありません。URL: ' . $mediaData['media_url']);
 					continue;
 				}
 				
 				// ファイルの中身取得
-				$imgData = @file_get_contents($mediaData['media_url'], false);
-				if (false === $imgData) {
-					echoLog('[error] 画像を取得できませんでした。URL: ' . $mediaData['media_url']);
-					continue;
-				}
+				$retryCnt = 0;
+				do {
+					$imgData = @file_get_contents($mediaData['media_url']);
+					if (false !== $imgData) {
+						break;
+					}
+
+					// ヘッダー情報からURLが存在していることを確認
+					$header = @get_headers($mediaData['media_url']);
+					if (false === $header) {
+						throw new Exception('[error] URLのヘッダー情報を取得できませんでした。接続状態を確認してください。');
+					}
+					if (empty($header[0]) || !preg_match('/^HTTP\/.*\s+200\s/i', $header[0])) {
+						// URLが存在しない場合
+						echoLog('[error] 画像が存在しません。URL: ' . $mediaData['media_url']);
+						continue;
+					}
+					if (self::GETTING_CONTENTS_RETRY_CNT == $retryCnt) {
+						// URLは存在しているがリトライしても取得できない場合
+						echoLog('[error] 画像を取得できませんでした。URL: ' . $mediaData['media_url']);
+						continue;
+					}
+					++$retryCnt;
+				} while (true);
 				
 				// ファイル名設定（拡張子はオリジナルのまま）
 				$fileName = $tweetData['id_str'] . '.' . substr($mediaData['media_url'], strrpos($mediaData['media_url'], '.') + 1);

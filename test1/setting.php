@@ -13,6 +13,8 @@ define('ACCESS_TOKEN_SECRET', '');
 define('SEARCH_KEYWORD', 'JustinBieber');
 define('SEARCH_LIMIT', 10);
 
+define('GETTING_CONTENTS_RETRY_CNT', 5);
+
 if (substr(PHP_OS, 0, 3) == 'WIN') {
 	define('IS_WINDOWS', true);
 	define('DIR_SEPARATE_STR', '\\');
